@@ -24,17 +24,11 @@ def concat_videos(clips: List[Path], output_path: Path, reencode: bool = True, l
             raise StitchError(result.stderr or "ffmpeg concat failed")
 
     if reencode:
-        # Using xfade filter to create smooth crossfade transitions between clips.
-        # This masks any motion discontinuity at clip boundaries.
-        # Trim start of subsequent clips to remove Sora "settle" frames.
-        boundary_trim_s = "0.250"  # ~7-8 frames at 30fps
+        # Since Sora 2 continues from last frame, skip the duplicate first frame of subsequent clips
         target_fps = "30"
         n = len(clips)
-        xfade_duration = crossfade  # crossfade duration in seconds
-        # Sora clips are typically 12s, after trim clips 2+ are ~11.75s
-        clip1_duration = 12.0
-        clip_n_duration = 12.0 - float(boundary_trim_s)
-
+        skip_frames = 2  # Skip first 2 frames of subsequent clips for smoother transition
+        
         inputs: List[str] = []
         for clip in clips:
             inputs += ["-i", str(clip)]
@@ -42,7 +36,7 @@ def concat_videos(clips: List[Path], output_path: Path, reencode: bool = True, l
         def _filter_with_audio() -> str:
             parts: List[str] = []
             
-            # Step 1: Preprocess all video clips (scale, fps - NO setpts yet, xfade needs proper frame rate)
+            # Preprocess all video clips - skip duplicate frames
             v_labels: List[str] = []
             a_labels: List[str] = []
             for i in range(n):
@@ -52,38 +46,26 @@ def concat_videos(clips: List[Path], output_path: Path, reencode: bool = True, l
                 a_labels.append(f"[{a_out}]")
 
                 if i == 0:
+                    # First clip: just normalize
                     parts.append(
                         f"[{i}:v:0]scale=iw:ih:force_original_aspect_ratio=decrease,setsar=1,fps={target_fps}[{v_out}]"
                     )
                     parts.append(f"[{i}:a:0]asetpts=PTS-STARTPTS[{a_out}]")
                 else:
-                    # Use select instead of trim to preserve frame rate info for xfade
+                    # Subsequent clips: skip first N frames (duplicates from continuity)
                     parts.append(
                         f"[{i}:v:0]scale=iw:ih:force_original_aspect_ratio=decrease,setsar=1,fps={target_fps},"
-                        f"select='gte(t\\,{boundary_trim_s})'[{v_out}]"
+                        f"select='gte(n\\,{skip_frames})',setpts=PTS-STARTPTS[{v_out}]"
                     )
-                    parts.append(f"[{i}:a:0]atrim=start={boundary_trim_s},asetpts=PTS-STARTPTS[{a_out}]")
+                    parts.append(f"[{i}:a:0]atrim=start={skip_frames/30},asetpts=PTS-STARTPTS[{a_out}]")
 
-            # Step 2: Build xfade chain for video (if multiple clips)
+            # Simple concat - duplicate frames already skipped
             if n == 1:
-                # Single clip: no crossfade needed, just apply setpts
                 final_v_label = "v0"
             else:
-                # Multiple clips: chain xfade filters
-                # Calculate offsets: first clip full duration, subsequent clips trimmed
-                for i in range(n - 1):
-                    if i == 0:
-                        # First xfade: [v0][v1] -> [vx1]
-                        # Clip 1 is full duration, fade starts at (duration - xfade_duration)
-                        offset = clip1_duration - xfade_duration
-                        parts.append(f"[v0][v1]xfade=transition=fade:duration={xfade_duration}:offset={offset}[vx1]")
-                    else:
-                        # Subsequent xfades: [vxi][vi+1] -> [vx(i+1)]
-                        # Accumulated duration: clip1 + (i * clip_n) - (i * xfade)
-                        offset = clip1_duration + (i * clip_n_duration) - (i * xfade_duration) - xfade_duration
-                        parts.append(f"[vx{i}][v{i+1}]xfade=transition=fade:duration={xfade_duration}:offset={offset}[vx{i+1}]")
-                
-                final_v_label = f"vx{n-1}"
+                concat_inputs = "".join([f"[v{i}]" for i in range(n)])
+                parts.append(f"{concat_inputs}concat=n={n}:v=1:a=0[vtmp]")
+                final_v_label = "vtmp"
             
             # Apply setpts AFTER xfade to normalize timestamps
             parts.append(f"[{final_v_label}]setpts=PTS-STARTPTS[v]")
@@ -107,7 +89,7 @@ def concat_videos(clips: List[Path], output_path: Path, reencode: bool = True, l
             parts: List[str] = []
             v_labels: List[str] = []
             
-            # Preprocess all clips (no setpts before xfade)
+            # Preprocess all clips - skip duplicate first frames on subsequent clips
             for i in range(n):
                 v_out = f"v{i}"
                 v_labels.append(f"[{v_out}]")
@@ -118,23 +100,16 @@ def concat_videos(clips: List[Path], output_path: Path, reencode: bool = True, l
                 else:
                     parts.append(
                         f"[{i}:v:0]scale=iw:ih:force_original_aspect_ratio=decrease,setsar=1,fps={target_fps},"
-                        f"select='gte(t\\,{boundary_trim_s})'[{v_out}]"
+                        f"select='gte(n\\,{skip_frames})',setpts=PTS-STARTPTS[{v_out}]"
                     )
             
-            # Build xfade chain (or pass through for single clip)
+            # Simple concat - duplicates already skipped
             if n == 1:
                 final_v_label = "v0"
             else:
-                # Calculate offsets with proper duration accounting
-                for i in range(n - 1):
-                    if i == 0:
-                        offset = clip1_duration - xfade_duration
-                        parts.append(f"[v0][v1]xfade=transition=fade:duration={xfade_duration}:offset={offset}[vx1]")
-                    else:
-                        offset = clip1_duration + (i * clip_n_duration) - (i * xfade_duration) - xfade_duration
-                        parts.append(f"[vx{i}][v{i+1}]xfade=transition=fade:duration={xfade_duration}:offset={offset}[vx{i+1}]")
-                
-                final_v_label = f"vx{n-1}"
+                concat_inputs = "".join([f"[v{i}]" for i in range(n)])
+                parts.append(f"{concat_inputs}concat=n={n}:v=1:a=0[vtmp]")
+                final_v_label = "vtmp"
             
             # Apply setpts after xfade
             parts.append(f"[{final_v_label}]setpts=PTS-STARTPTS[v]")
