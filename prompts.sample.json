@@ -1,0 +1,22 @@
+{
+  "seed": 12345,
+  "global_style": "cinematic warm tones, shallow depth of field",
+  "clips": [
+    {
+      "index": 1,
+      "prompt": "Scene opens (beat 1 of 4) focused on: neon courier delivery. Scene: Rainy neon alley with reflective puddles with lighting golden hour warm glow. Characters: Courier in a neon jacket with visor helmet. Camera: slow dolly-in at constant speed. Style: cinematic warm tones, shallow depth of field. Action: begin the story logically, focused on the goal. Duration: 15s. Negatives: No sudden zooms; No random cuts; Do not change character outfits."
+    },
+    {
+      "index": 2,
+      "prompt": "Continue seamlessly from prior frame (beat 2 of 4) to advance: neon courier delivery. Continue from previous last frame. Maintain camera: slow dolly-in at constant speed; lighting: golden hour warm glow; characters: Courier in a neon jacket with visor helmet; environment: Rainy neon alley with reflective puddles. Style: cinematic warm tones, shallow depth of field. Action: progress to next beat of the story. Duration: 15s. Negatives: No sudden zooms; No random cuts; Do not change character outfits."
+    },
+    {
+      "index": 3,
+      "prompt": "Continue seamlessly from prior frame (beat 3 of 4) to advance: neon courier delivery. Continue from previous last frame. Maintain camera: slow dolly-in at constant speed; lighting: golden hour warm glow; characters: Courier in a neon jacket with visor helmet; environment: Rainy neon alley with reflective puddles. Style: cinematic warm tones, shallow depth of field. Action: progress to next beat of the story. Duration: 15s. Negatives: No sudden zooms; No random cuts; Do not change character outfits."
+    },
+    {
+      "index": 4,
+      "prompt": "Continue seamlessly from prior frame (beat 4 of 4) to advance: neon courier delivery. Continue from previous last frame. Maintain camera: slow dolly-in at constant speed; lighting: golden hour warm glow; characters: Courier in a neon jacket with visor helmet; environment: Rainy neon alley with reflective puddles. Style: cinematic warm tones, shallow depth of field. Action: progress to next beat of the story. Duration: 15s. Negatives: No sudden zooms; No random cuts; Do not change character outfits."
+    }
+  ]
+}

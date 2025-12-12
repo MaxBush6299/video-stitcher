@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "job_id": "2025-12-11T22-15-30Z-abc123",
+  "total_seconds": 60,
+  "clip_seconds": 15,
+  "aspect_ratio": "16:9",
+  "seed": 12345,
+  "global_style": "cinematic warm tones, shallow depth of field",
+  "camera": "slow dolly-in at constant speed",
+  "lighting": "golden hour warm glow",
+  "negatives": [
+    "No sudden zooms",
+    "No random cuts",
+    "Do not change character outfits"
+  ],
+  "goal": "neon courier delivery",
+  "characters": "Courier in a neon jacket with visor helmet",
+  "environment": "Rainy neon alley with reflective puddles"
+}
