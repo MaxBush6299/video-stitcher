@@ -50,6 +50,7 @@ class Storyboard:
     goal: str
     characters: str
     environment: str
+    template: Optional[str] = None
 
     def to_dict(self) -> Dict:
         return {
@@ -66,6 +67,7 @@ class Storyboard:
             "goal": self.goal,
             "characters": self.characters,
             "environment": self.environment,
+            "template": self.template,
         }
 
     @classmethod
@@ -84,6 +86,7 @@ class Storyboard:
             goal=data.get("goal", ""),
             characters=data.get("characters", ""),
             environment=data.get("environment", ""),
+            template=data.get("template"),
         )
 
 
@@ -123,13 +126,14 @@ class PromptsFile:
 class ClipArtifact:
     clip: str
     last_frame: str
+    video_id: Optional[str] = None
 
     def to_dict(self) -> Dict:
-        return {"clip": self.clip, "last_frame": self.last_frame}
+        return {"clip": self.clip, "last_frame": self.last_frame, "video_id": self.video_id}
 
     @classmethod
     def from_dict(cls, data: Dict) -> "ClipArtifact":
-        return cls(clip=data["clip"], last_frame=data["last_frame"])
+        return cls(clip=data["clip"], last_frame=data["last_frame"], video_id=data.get("video_id"))
 
 
 @dataclass
@@ -138,6 +142,7 @@ class RunState:
     current_clip: int
     total_clips: int
     artifacts: Dict[str, ClipArtifact] = field(default_factory=dict)
+    reference_image: Optional[str] = None
 
     def to_dict(self) -> Dict:
         return {
@@ -145,6 +150,7 @@ class RunState:
             "current_clip": self.current_clip,
             "total_clips": self.total_clips,
             "artifacts": {k: v.to_dict() for k, v in self.artifacts.items()},
+            "reference_image": self.reference_image,
         }
 
     @classmethod
@@ -155,6 +161,7 @@ class RunState:
             current_clip=data.get("current_clip", 1),
             total_clips=data.get("total_clips", len(artifacts)),
             artifacts=artifacts,
+            reference_image=data.get("reference_image"),
         )
 
     @classmethod
