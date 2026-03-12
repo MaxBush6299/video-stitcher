@@ -6,6 +6,7 @@ This tool helps you create professional-quality videos using AI. Just describe w
 - Action scenes (sports, adventures, dynamic movement)
 - Scenic shots (nature, architecture, atmospheric moments)
 - Character-focused videos (robots, animals, people in creative scenarios)
+- Instructional training videos (course intros, module overviews, explainer sequences)
 - Anything you can imagine and describe!
 
 ## What You Need Before Starting
@@ -85,6 +86,12 @@ python cli.py generate
 ```
 This sends your prompts to Azure's Sora 2 AI to create the actual video clips. **This takes several minutes per clip** (be patient!). The tool automatically saves progress, so if something fails, it can continue where it left off.
 
+Optional: Seed clip 1 with a reference image (logo-safe, no human faces):
+```bash
+python cli.py generate --reference-image path/to/reference.png
+```
+The tool will auto-resize and crop the image to match the target video size and use it as the first frame.
+
 **Step 4: Combine clips into final video**
 ```bash
 python cli.py stitch
@@ -146,6 +153,64 @@ python cli.py new --goal "your idea here" --total-sec 60 --clip-sec 20 --aspect 
 - `--total-sec 60` = 1 minute total video
 - `--clip-sec 20` = each clip is 20 seconds (makes 3 clips)
 - `--aspect 16:9` = widescreen format (also supports `1:1` for square, `9:16` for vertical)
+
+Note: Sora video durations are currently supported in fixed increments. If you request `--clip-sec 10`, the backend may produce 8s or 12s clips. For a clean “~60s” run today, a reliable option is `--total-sec 60 --clip-sec 12` (5 clips).
+
+## Make Instructional Training Videos (Course Intros)
+
+This workflow is great for instructor-led training intros, module overviews, and internal enablement videos.
+
+### Example: 60-second course intro (avatar presenter)
+
+Run this (recommended for ~60s: 5 clips × 12s):
+```bash
+python cli.py new --template training-intro --goal "Create a one-minute instructor-led training course introduction video for: 'ILT Course Title: M3 Cloud: Food and Beverage Foundation – Instructor-Led Training' (Learning Level: Intermediate). Use a non-real, stylized 3D avatar presenter (no real people/faces) speaking to camera in a clean studio with subtle UI motion-graphics. Training description: This instructor-led course provides a foundational understanding of the M3 Cloud Food and Beverage solution. It introduces participants to system navigation, key functionalities, and industry-specific processes relevant to food and beverage operations. Learners will explore core modules, typical workflows, and how the solution supports business requirements across planning, procurement, production, inventory, distribution, order fulfillment, finance, warehouse interaction, and product quality and safety. Essential terminology, system architecture, and integration points are covered, with practical examples and real-world scenarios. The workbook emphasizes hands-on exercises and knowledge checks to reinforce understanding and prepare users for more specialized training. Goals to cover across the sequence: (1) premise of the course, (2) demand & supply planning, (3) procurement, (4) production-to-inventory, (5) distribution orders, (6) order fulfillment, (7) finance areas, (8) warehouse inventory interaction, (9) product quality & safety, (10) additional food & beverage processes. Prerequisites to mention briefly: M3 Cloud: Infor OS with M3 Overview; M3 Cloud: Infor OS Workspaces with M3 Overview; M3 Cloud: H5 Overview; M3 Cloud: H5 Overview – Advanced Topics. Modality: instructor-led training. Tone: professional, clear, encouraging. Pacing: brisk, one idea per segment with readable on-screen headings." --total-sec 60 --clip-sec 12 --aspect 16:9 --auto --interview
+
+python cli.py preview
+python cli.py generate
+python cli.py stitch
+python cli.py open
+```
+
+Tip: If you have an approved brand-safe reference image (e.g., background plate, UI style frame, non-logo illustration), you can seed clip 1:
+```bash
+python cli.py generate --reference-image path/to/reference.png
+```
+
+### Scripted training intro (recommended for training pages)
+
+If you have a big course info block (title, description, goals, prerequisites), you can generate a more informational, scene-by-scene script with **exact on-screen text** and a friendly host.
+
+This mode uses a friendly light-brown teddy bear host (no real people) and enforces a single consistent narrator voice in every clip.
+
+```bash
+python cli.py new --template training-script --total-sec 60 --clip-sec 12 --aspect 16:9 --goal "ILT Course Title: ...\nLearning Level: ...\n...Goals: ...\nPrerequisites: ...\nModality: Instructor-led training"
+
+python cli.py preview
+python cli.py generate
+python cli.py stitch
+python cli.py open
+```
+
+The generated run will include a `script.json` file alongside `prompts.json` so you can review/edit the exact narration + on-screen text per scene.
+
+## Remix (Iterate Without Full Regeneration)
+
+If a clip is close but needs a small change, you can remix a completed video. Remix works best for a single, well-defined adjustment (e.g., palette shift, add a title card, tighten the camera move).
+
+This CLI stores each clip's `video_id` in `run_state.json` as it generates.
+
+Remix the most recent clip in the latest run:
+```bash
+python cli.py remix "Shift the color palette to teal, sand, and rust, with a warm backlight."
+```
+
+Or remix a specific video id:
+```bash
+python cli.py remix "Make the on-screen title larger and increase contrast." --video-id video_abc123
+```
+
+Reference: https://platform.openai.com/docs/guides/video-generation#remix-completed-videos
 
 **Want consistent randomness?**
 ```bash

@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import requests
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from requests.exceptions import Timeout as RequestsTimeout
 
 from utils import normalize_azure_openai_endpoint
 
@@ -53,12 +55,47 @@ class PromptLLMClient:
         self.api_version = api_version or os.getenv("AZURE_OPENAI_TEXT_API_VERSION", "2024-10-01-preview")
         self.mock = mock
 
+        # Allow longer timeouts for large prompts / slower regions.
+        try:
+            self.timeout_s = float(os.getenv("AZURE_OPENAI_TEXT_TIMEOUT", "180"))
+        except Exception:
+            self.timeout_s = 180.0
+
+        try:
+            self.max_retries = int(os.getenv("AZURE_OPENAI_TEXT_RETRIES", "2"))
+        except Exception:
+            self.max_retries = 2
+
+        try:
+            self.retry_backoff_s = float(os.getenv("AZURE_OPENAI_TEXT_RETRY_BACKOFF", "2"))
+        except Exception:
+            self.retry_backoff_s = 2.0
+
         if not self.mock and not all([self.endpoint, self.api_key, self.deployment]):
             raise ValueError(
                 "AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and AZURE_OPENAI_TEXT_MODEL must be set for --auto (or use --mock-llm)."
             )
 
         self.session = requests.Session()
+
+    def _post_with_retries(self, url: str, payload: Dict[str, Any]) -> requests.Response:
+        """POST JSON with basic retry on timeouts / transient connection errors."""
+        attempt = 0
+        last_exc: Optional[Exception] = None
+        while attempt <= self.max_retries:
+            try:
+                resp = self.session.post(url, headers=self._headers(), json=payload, timeout=self.timeout_s)
+                return resp
+            except (RequestsTimeout, RequestsConnectionError) as exc:
+                last_exc = exc
+                attempt += 1
+                if attempt > self.max_retries:
+                    break
+                # Simple linear backoff
+                import time
+
+                time.sleep(self.retry_backoff_s * attempt)
+        raise RuntimeError(f"LLM request failed after {self.max_retries + 1} attempts: {last_exc}")
 
     def _chat_url(self) -> str:
         if not self.endpoint or not self.deployment:
@@ -269,7 +306,7 @@ class PromptLLMClient:
             ],
         }
 
-        resp = self.session.post(self._chat_url(), headers=self._headers(), json=payload, timeout=60)
+        resp = self._post_with_retries(self._chat_url(), payload)
         try:
             resp.raise_for_status()
         except requests.HTTPError as exc:
@@ -398,3 +435,166 @@ class PromptLLMClient:
             content = "\n".join(lines[1:-1]) if len(lines) > 2 else content
         
         return content
+
+
+    def generate_training_script(
+        self,
+        course_block: str,
+        total_clips: int,
+        clip_seconds: int,
+        aspect_ratio: str,
+        seed: Optional[int] = None,
+        style_hint: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Generate a scene-by-scene training script.
+
+        Output schema (JSON dict):
+          {
+            "title": str,
+            "subtitle": str,
+            "host": {"description": str, "voice": str},
+            "aesthetic": {"style": str, "typography": str, "motion_graphics": str},
+            "scenes": [
+              {
+                "index": int,
+                "duration_seconds": int,
+                "narration": str,
+                "on_screen_text": {"lines": [str, ...]},
+                "visuals": str
+              }
+            ]
+          }
+        """
+
+        course_block = (course_block or "").strip()
+        if not course_block:
+            raise ValueError("course_block is required")
+
+        if self.mock:
+            title = "Course Introduction"
+            # Best-effort pull of an inline title
+            for line in course_block.splitlines():
+                if "course title" in line.lower():
+                    title = line.split(":", 1)[-1].strip().strip("\"'")
+                    break
+            scenes: List[Dict[str, Any]] = []
+            for i in range(1, total_clips + 1):
+                scenes.append(
+                    {
+                        "index": i,
+                        "duration_seconds": clip_seconds,
+                        "narration": f"Welcome to {title}. In this short introduction, we preview what you will learn and who the course is for.",
+                        "on_screen_text": {"lines": [title, "Instructor-Led Training", f"Scene {i} of {total_clips}"]},
+                        "visuals": "Friendly light-brown teddy bear host in a clean studio with subtle manufacturing UI silhouettes and light motion graphics.",
+                    }
+                )
+            return {
+                "title": title,
+                "subtitle": "Instructor-Led Training",
+                "host": {"description": "Light-brown teddy bear host (friendly, non-real)", "voice": "Same narrator voice across all scenes"},
+                "aesthetic": {
+                    "style": style_hint or "Modern enterprise training aesthetic",
+                    "typography": "Clean sans-serif, high contrast",
+                    "motion_graphics": "Light motion graphics with labeled tiles and bullets",
+                },
+                "scenes": scenes,
+            }
+
+        system = (
+            "You are an instructional designer and motion-graphics director writing a 60-second enterprise training intro script for Sora 2 video generation. "
+            "Your output MUST be usable to generate a content-dense intro video with clear on-screen headings and lots of spoken narration (voiceover).\n\n"
+            "CRITICAL REQUIREMENTS:\n"
+            "- Output ONLY valid JSON. No markdown. No preamble.\n"
+            "- EXACTLY the requested number of scenes.\n"
+            "- Every scene must include: narration, on_screen_text.lines (strings), and visuals.\n"
+            "- The on_screen_text.lines must be short and readable, and MUST be treated as EXACT text to render on-screen.\n"
+            "- Keep a consistent host character across all scenes: a friendly light-brown teddy bear (non-real), presenting to camera in a clean studio.\n"
+            "- Keep the narrator voice consistent across all scenes: same tone, same persona, no switching speakers.\n"
+            "- Make the narration informational and specific to the course content; avoid generic corporate filler.\n"
+            "- Preserve the course title verbatim if present in the input.\n"
+            "- Use modern enterprise training styling: clean typography, light motion graphics, subtle UI silhouettes relevant to the domain (but do not invent brand logos).\n"
+        )
+
+        schema = {
+            "title": "string",
+            "subtitle": "string",
+            "host": {"description": "string", "voice": "string"},
+            "aesthetic": {"style": "string", "typography": "string", "motion_graphics": "string"},
+            "scenes": [
+                {
+                    "index": "int (1-based)",
+                    "duration_seconds": "int (match clip_seconds)",
+                    "narration": "string (full sentence voiceover; content-dense)",
+                    "on_screen_text": {"lines": ["string (exact)"]},
+                    "visuals": "string (what we see; motion graphics; host actions)",
+                }
+            ],
+        }
+
+        user = {
+            "task": "Convert the provided course block into a 60-second scene script.",
+            "inputs": {
+                "course_block": course_block,
+                "total_scenes": total_clips,
+                "scene_seconds": clip_seconds,
+                "aspect_ratio": aspect_ratio,
+                "seed": seed,
+                "style_hint": style_hint or "Modern enterprise training aesthetic with light motion graphics and clean typography",
+            },
+            "output_schema": schema,
+            "scene_guidance": [
+                "Scene 1: Title + what the course is about (1-2 sentences) + on-screen title/subtitle",
+                "Scene 2-4: What you'll learn (group goals into readable bullets; keep narration explicit)",
+                "Scene 5: Who it's for + prerequisites (if provided)",
+                "Scene 6: Close with call-to-action (enroll / begin)",
+                "If there are fewer/more scenes than 6, distribute the same content proportionally.",
+            ],
+            "host_constraints": [
+                "Host is a light-brown teddy bear, friendly and professional, consistent outfit and facial features.",
+                "Host remains on-camera for most scenes; motion graphics appear beside/behind host.",
+            ],
+            "voice_constraints": [
+                "Single narrator voice across all scenes.",
+                "Tone: warm, encouraging, clear, enterprise-professional.",
+            ],
+        }
+
+        payload = {
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": json.dumps(user, indent=2)},
+            ]
+        }
+
+        resp = self._post_with_retries(self._chat_url(), payload)
+        try:
+            resp.raise_for_status()
+        except requests.HTTPError as exc:
+            body = (resp.text or "").strip()
+            if len(body) > 2000:
+                body = body[:2000] + "..."
+            raise RuntimeError(f"LLM request failed: HTTP {resp.status_code} for {resp.url}; body={body}") from exc
+
+        data = resp.json()
+        content = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+            .strip()
+        )
+
+        try:
+            obj = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"LLM did not return valid JSON: {exc}; content={content[:500]}")
+
+        # Minimal validation
+        scenes = obj.get("scenes")
+        if not isinstance(scenes, list) or len(scenes) != total_clips:
+            raise RuntimeError(f"training script scenes must be a list of length {total_clips}")
+        for i, s in enumerate(scenes, start=1):
+            if not isinstance(s, dict):
+                raise RuntimeError("training script scene must be an object")
+            if "narration" not in s or "on_screen_text" not in s or "visuals" not in s:
+                raise RuntimeError(f"training script scene {i} missing required fields")
+        return obj
